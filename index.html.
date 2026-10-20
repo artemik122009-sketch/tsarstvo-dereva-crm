@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Царство дерева — CRM</title>
+<style>
+:root{--bg:#f6efe2;--card:#fffaf0;--wood:#8a5a2b;--dark:#4a2f17;--line:#e4d6bd;--mut:#8b7a63}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--dark);font:16px/1.4 -apple-system,"Helvetica Neue",Arial,sans-serif}
+header{padding:calc(env(safe-area-inset-top) + 14px) 16px 8px}
+h1{margin:0;font:600 20px Georgia,serif}h2{font:600 18px Georgia,serif;margin:18px 0 8px}h3{margin:14px 0 6px;font-size:15px}
+header small{color:var(--mut)}main{padding:0 14px 110px}
+input,select,textarea{width:100%;font:16px inherit;font-family:inherit;padding:11px;margin:4px 0 10px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--dark)}
+label{display:block;font-size:13px;color:var(--mut)}
+.btn{display:block;width:100%;padding:13px;margin:8px 0;border:0;border-radius:14px;background:var(--wood);color:#fff;font:600 16px inherit;font-family:inherit}
+.btn.light{background:#efe3cc;color:var(--dark)}.btn.del{background:#fff;color:#a63d2f;border:1px solid #a63d2f}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;margin:8px 0;box-shadow:0 1px 3px #8a5a2b14}
+.row{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}.mut{color:var(--mut);font-size:14px}.sum{font-weight:700;margin-top:4px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid .card{margin:0}.grid b{display:block;font-size:22px;font-family:Georgia,serif}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tag{font-size:12px;padding:3px 8px;border-radius:20px;background:#eadcc2;white-space:nowrap}
+.s-done{background:#d9e8cc}.s-canc{background:#f0d4cf}.s-new{background:#f6e2a8}
+.warn{background:#fbe9c6;border:1px solid #e0b860;border-radius:12px;padding:10px 12px;margin:10px 0;font-size:14px}.warn.red{background:#f7d9d4;border-color:#c9685c}
+.empty{color:var(--mut);text-align:center;padding:20px}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#fffaf0f2;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;background:0;padding:8px 0 6px;font:11px inherit;font-family:inherit;color:var(--mut)}nav button span{display:block;font-size:20px}nav button.on{color:var(--wood);font-weight:700}
+#sh{position:fixed;inset:0;background:#2b1a0b80;display:none;align-items:flex-end;z-index:5}#sh.on{display:flex}
+.box{background:var(--bg);width:100%;max-height:92%;overflow:auto;border-radius:22px 22px 0 0;padding:16px 16px calc(env(safe-area-inset-bottom) + 20px)}.box h2{margin-top:0}
+.irow{display:grid;grid-template-columns:1fr 56px 84px 32px;gap:5px;align-items:center}.irow input{margin:3px 0;padding:9px 7px}.irow.h{font-size:12px;color:var(--mut)}.x{border:0;background:0;font-size:18px;color:#a63d2f}
+.tot{font-size:18px;text-align:right;margin:8px 0}
+.bar{height:8px;background:#e9dcc2;border-radius:6px;margin-top:6px}.bar i{display:block;height:8px;background:var(--wood);border-radius:6px}
+#toast{position:fixed;left:14px;right:14px;top:calc(env(safe-area-inset-top) + 10px);background:var(--dark);color:#fff;padding:12px;border-radius:12px;z-index:9;display:none;font-size:14px}#toast.show{display:block}#toast.bad{background:#a63d2f}
+a{color:var(--wood)}
+</style></head><body>
+<header><h1>🪵 Царство дерева</h1><small>заготовки от Натальи · CRM</small></header>
+<div id="bn"></div><main id="main"></main>
+<nav>
+<button data-t="home" onclick="go('home')"><span>🏠</span>Главная</button>
+<button data-t="orders" onclick="go('orders')"><span>📦</span>Заказы</button>
+<button data-t="clients" onclick="go('clients')"><span>👥</span>Клиенты</button>
+<button data-t="stats" onclick="go('stats')"><span>📊</span>Аналитика</button>
+<button data-t="set" onclick="go('set')"><span>⚙️</span>Настройки</button>
+</nav>
+<div id="sh" onclick="if(event.target===this)closeSheet()"></div><div id="toast"></div>
+<input type="file" id="fi" accept=".json,application/json" style="display:none" onchange="importFile(this.files[0]);this.value=''">
+<script>
+const KEY='kd_crm_v1';
+const ST={new:'Новая заявка',wait:'Ожидает оплаты',paid:'Оплачен',build:'Сборка',sent:'Отправлен',done:'Завершён',canc:'Отменён'};
+let db,storageOk=true,tab='home',f={q:'',st:'',from:'',to:'',cq:''},lock=false,tok=null,tt;
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>new Intl.NumberFormat('ru-RU',{maximumFractionDigits:2}).format(n||0)+' ₽';
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const pad=n=>String(n).padStart(2,'0');
+const ymd=d=>{d=new Date(d);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())};
+const fmtDate=d=>new Date(d).toLocaleDateString('ru-RU');
+const num=o=>'№'+String(o.num).padStart(4,'0');
+const total=o=>Math.round(o.items.reduce((s,i)=>s+i.qty*i.price,0)*100)/100;
+const numv=v=>{v=String(v).trim().replace(/\s/g,'').replace(',','.');return v!==''&&isFinite(v)?+v:NaN};
+const isRev=o=>o.status==='done',active=o=>o.status!=='canc';
+const fresh=()=>({counter:0,orders:[],clients:[],settings:{demoBtn:true,lastBackup:null}});
+
+function norm(d){
+ if(!d||!Array.isArray(d.orders)||!Array.isArray(d.clients))throw new Error('bad');
+ const o=fresh();
+ o.orders=d.orders.filter(x=>x&&x.id&&ST[x.status]&&Array.isArray(x.items)&&+x.num>0).map(x=>({...x,num:+x.num,items:x.items.map(i=>({name:String(i.name),qty:+i.qty||0,price:+i.price||0}))}));
+ o.clients=d.clients.filter(x=>x&&x.id&&x.name);
+ o.settings=Object.assign(o.settings,d.settings||{});
+ o.counter=Math.max(+d.counter||0,0,...o.orders.map(x=>x.num));
+ return o}
+function load(){
+ try{localStorage.setItem('__t','1');localStorage.removeItem('__t')}catch(e){storageOk=false}
+ db=fresh();if(!storageOk)return;
+ const r=localStorage.getItem(KEY);if(!r)return;
+ try{db=norm(JSON.parse(r))}catch(e){
+  try{localStorage.setItem(KEY+'_broken',r)}catch(x){}
+  db=fresh();alert('Не удалось прочитать сохранённые данные. Копия повреждённых данных сохранена отдельно. Если у вас есть файл резервной копии — восстановите данные в Настройках.')}}
+function save(){
+ try{if(!storageOk)throw new Error('off');localStorage.setItem(KEY,JSON.stringify(db));return true}
+ catch(e){toast('⚠️ Не удалось сохранить! Память браузера недоступна или заполнена (возможно, включён приватный режим). Срочно сделайте резервную копию в «Настройках».',true);return false}}
+function toast(m,bad){const t=$('#toast');t.textContent=m;t.className='show'+(bad?' bad':'');clearTimeout(tt);tt=setTimeout(()=>t.className='',bad?10000:2500)}
+function go(t){tab=t;render();scrollTo(0,0)}
+function sheet(h){const s=$('#sh');s.innerHTML='<div class="box">'+h+'</div>';s.classList.add('on');document.body.style.overflow='hidden'}
+function closeSheet(){$('#sh').classList.remove('on');$('#sh').innerHTML='';document.body.style.overflow=''}
+function render(){
+ $('#bn').innerHTML=storageOk?'':'<div class="warn red" style="margin:6px 14px">⚠️ Хранилище браузера недоступно (возможно, приватный режим). Данные НЕ сохранятся после закрытия страницы. Откройте приложение в обычной вкладке Safari.</div>';
+ document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.t===tab));
+ ({home:vHome,orders:vOrders,clients:vClients,stats:vStats,set:vSet})[tab]($('#main'))}
+
+const card=o=>`<div class="card" onclick="openOrder('${o.id}')"><div class="row"><b>${num(o)} · ${esc(o.name)}</b><span class="tag s-${o.status}">${ST[o.status]}</span></div><div class="mut">${fmtDate(o.created)} · ${esc(o.items.map(i=>i.name).join(', '))}</div><div class="sum">${money(total(o))}</div></div>`;
+const stat=(a,b)=>`<div class="card"><span class="mut">${a}</span><b>${b}</b></div>`;
+
+function vHome(m){
+ const O=db.orders,d=O.filter(isRev),rev=d.reduce((s,o)=>s+total(o),0);
+ const w=O.filter(o=>['wait','paid','build','sent'].includes(o.status)).length;
+ const old=!db.settings.lastBackup||(Date.now()-new Date(db.settings.lastBackup))>7*864e5;
+ m.innerHTML=((O.length+db.clients.length)&&old?`<div class="warn">⚠️ Давно не было резервной копии. Данные хранятся только в этом браузере на этом телефоне. <a href="#" onclick="go('set');return false">Сделать копию</a></div>`:'')+
+ `<div class="grid">${stat('Всего заказов',O.length)}${stat('Новые заявки',O.filter(o=>o.status==='new').length)}${stat('В работе',w)}${stat('Завершённые',d.length)}${stat('Выручка',money(rev))}${stat('Средний чек',money(d.length?rev/d.length:0))}</div><h2>Последние заказы</h2>`+
+ (O.length?[...O].sort((a,b)=>b.num-a.num).slice(0,5).map(card).join(''):'<p class="empty">Заказов пока нет. Откройте «Заказы» и нажмите «+ Новый заказ».</p>')}
+
+function vOrders(m){
+ m.innerHTML=`<button class="btn" onclick="openOrder()">+ Новый заказ</button><input placeholder="Поиск: номер, имя, товар" value="${esc(f.q)}" oninput="f.q=this.value;listOrders()"><select onchange="f.st=this.value;listOrders()"><option value="">Все статусы</option>${Object.entries(ST).map(([k,v])=>`<option value="${k}"${f.st===k?' selected':''}>${v}</option>`).join('')}</select><div class="two"><label>С даты<input type="date" value="${f.from}" onchange="f.from=this.value;listOrders()"></label><label>По дату<input type="date" value="${f.to}" onchange="f.to=this.value;listOrders()"></label></div><div id="ol"></div>`;listOrders()}
+function listOrders(){
+ const q=f.q.trim().toLowerCase().replace('№','');
+ const L=db.orders.filter(o=>(!f.st||o.status===f.st)&&(!f.from||ymd(o.created)>=f.from)&&(!f.to||ymd(o.created)<=f.to)&&(!q||num(o).toLowerCase().includes(q)||o.name.toLowerCase().includes(q)||o.items.some(i=>i.name.toLowerCase().includes(q)))).sort((a,b)=>b.num-a.num);
+ $('#ol').innerHTML=L.length?L.map(card).join(''):'<p class="empty">Ничего не найдено</p>'}
+
+const itemRow=i=>`<div class="irow"><input placeholder="Товар" value="${esc(i.name)}"><input inputmode="decimal" value="${esc(i.qty)}" oninput="calc()"><input inputmode="decimal" placeholder="0" value="${esc(i.price)}" oninput="calc()"><button class="x" onclick="this.parentNode.remove();calc()">✕</button></div>`;
+function addItem(){$('#its').insertAdjacentHTML('beforeend',itemRow({name:'',qty:1,price:''}))}
+function calc(){let s=0;document.querySelectorAll('#its .irow:not(.h)').forEach(r=>{const[n,q,p]=[...r.querySelectorAll('input')].map(x=>numv(x.value));if(q>0&&p>=0)s+=q*p});$('#tt').textContent=money(Math.round(s*100)/100)}
+function fillCl(){const c=db.clients.find(x=>x.name.toLowerCase()===$('#fn').value.trim().toLowerCase());if(c){if(!$('#fp').value)$('#fp').value=c.phone||'';if(!$('#fv').value)$('#fv').value=c.vk||''}}
+function openOrder(id){
+ const o=id?db.orders.find(x=>x.id===id):null;tok=o?null:uid();
+ const it=o?o.items:[{name:'',qty:1,price:''}];
+ sheet(`<h2>${o?'Заказ '+num(o)+' · '+fmtDate(o.created):'Новый заказ'}</h2>
+<label>Имя клиента *<input id="fn" list="cl" autocomplete="off" onchange="fillCl()" value="${esc(o&&o.name)}"></label><datalist id="cl">${db.clients.map(c=>`<option value="${esc(c.name)}">`).join('')}</datalist>
+<label>Телефон (необязательно)<input id="fp" type="tel" value="${esc(o&&o.phone)}"></label>
+<label>Профиль ВКонтакте (необязательно)<input id="fv" placeholder="vk.com/..." value="${esc(o&&o.vk)}"></label>
+<h3>Товары *</h3><div id="its"><div class="irow h"><span>Название</span><span>Кол-во</span><span>Цена за ед.</span><span></span></div>${it.map(itemRow).join('')}</div>
+<button class="btn light" onclick="addItem()">+ Добавить товар</button><div class="tot">Итого: <b id="tt"></b></div>
+<label>Статус<select id="fs">${Object.entries(ST).map(([k,v])=>`<option value="${k}"${o&&o.status===k?' selected':''}>${v}</option>`).join('')}</select></label>
+<label>Комментарий<textarea id="fc" rows="3">${esc(o&&o.comment)}</textarea></label>
+<button class="btn" onclick="saveOrder('${id||''}')">Сохранить</button>${o?`<button class="btn del" onclick="delOrder('${o.id}')">Удалить заказ</button>`:''}<button class="btn light" onclick="closeSheet()">Закрыть</button>`);calc()}
+function saveOrder(id){
+ if(lock)return;
+ const name=$('#fn').value.trim(),phone=$('#fp').value.trim(),vk=$('#fv').value.trim(),comment=$('#fc').value.trim(),status=$('#fs').value,items=[];let bad=false;
+ document.querySelectorAll('#its .irow:not(.h)').forEach(r=>{
+  const[n,q,p]=[...r.querySelectorAll('input')].map(x=>x.value.trim());if(!n&&!p)return;
+  const qq=numv(q),pp=numv(p);if(!n||!(qq>0)||!(pp>=0))bad=true;else items.push({name:n,qty:qq,price:pp})});
+ if(!name)return toast('Укажите имя клиента',true);
+ if(bad)return toast('Проверьте товары: нужны название, количество больше 0 и цена (число, не меньше 0)',true);
+ if(!items.length)return toast('Добавьте хотя бы один товар',true);
+ if(!id){if(!tok)return;tok=null}
+ lock=true;setTimeout(()=>lock=false,800);
+ let c=db.clients.find(x=>x.name.toLowerCase()===name.toLowerCase());
+ if(!c){c={id:uid(),name,phone,vk,note:''};db.clients.push(c)}else{if(!c.phone&&phone)c.phone=phone;if(!c.vk&&vk)c.vk=vk}
+ if(id){Object.assign(db.orders.find(x=>x.id===id),{cid:c.id,name,phone,vk,items,status,comment})}
+ else{db.counter++;db.orders.push({id:uid(),num:db.counter,created:new Date().toISOString(),cid:c.id,name,phone,vk,items,status,comment})}
+ if(save())toast('Сохранено ✓');closeSheet();render()}
+function delOrder(id){
+ const o=db.orders.find(x=>x.id===id);
+ if(!confirm('Удалить заказ '+num(o)+' ('+o.name+')? Это действие нельзя отменить.'))return;
+ db.orders=db.orders.filter(x=>x.id!==id);if(save())toast('Заказ удалён');closeSheet();render()}
+
+function vClients(m){
+ m.innerHTML=`<button class="btn" onclick="openClient()">+ Новый клиент</button><input placeholder="Поиск по имени и контактам" value="${esc(f.cq)}" oninput="f.cq=this.value;listClients()"><div id="cl2"></div>`;listClients()}
+function cstat(c){const O=db.orders.filter(o=>o.cid===c.id);return{n:O.length,s:O.filter(isRev).reduce((s,o)=>s+total(o),0),O}}
+function listClients(){
+ const q=f.cq.trim().toLowerCase();
+ const L=db.clients.filter(c=>!q||(c.name+' '+(c.phone||'')+' '+(c.vk||'')).toLowerCase().includes(q)).sort((a,b)=>a.name.localeCompare(b.name,'ru'));
+ $('#cl2').innerHTML=L.length?L.map(c=>{const s=cstat(c);return `<div class="card" onclick="openClient('${c.id}')"><b>${esc(c.name)}</b><div class="mut">${esc([c.phone,c.vk].filter(Boolean).join(' · ')||'контактов нет')}</div><div class="mut">Заказов: ${s.n} · Куплено (завершённые): <b>${money(s.s)}</b></div></div>`}).join(''):'<p class="empty">Клиентов пока нет. Они добавляются сами при создании заказа или кнопкой выше.</p>'}
+function openClient(id){
+ const c=id?db.clients.find(x=>x.id===id):null,s=c?cstat(c):null;
+ sheet(`<h2>${c?'Клиент':'Новый клиент'}</h2><label>Имя *<input id="cn" value="${esc(c&&c.name)}"></label><label>Телефон<input id="cp" type="tel" value="${esc(c&&c.phone)}"></label><label>Профиль ВКонтакте<input id="cv" value="${esc(c&&c.vk)}"></label><label>Заметка<textarea id="cz" rows="2">${esc(c&&c.note)}</textarea></label>
+<button class="btn" onclick="saveClient('${id||''}')">Сохранить</button>${c?`<button class="btn del" onclick="delClient('${c.id}')">Удалить клиента</button>`:''}<button class="btn light" onclick="closeSheet()">Закрыть</button>
+${c?`<h3>История заказов (${s.n}) · куплено на ${money(s.s)}</h3>`+(s.O.length?[...s.O].sort((a,b)=>b.num-a.num).map(card).join(''):'<p class="empty">Заказов нет</p>'):''}`)}
+function saveClient(id){
+ const name=$('#cn').value.trim();if(!name)return toast('Укажите имя клиента',true);
+ if(db.clients.some(x=>x.id!==id&&x.name.toLowerCase()===name.toLowerCase()))return toast('Клиент с таким именем уже есть',true);
+ if(lock)return;lock=true;setTimeout(()=>lock=false,800);
+ const d={name,phone:$('#cp').value.trim(),vk:$('#cv').value.trim(),note:$('#cz').value.trim()};
+ if(id){Object.assign(db.clients.find(x=>x.id===id),d);db.orders.filter(o=>o.cid===id).forEach(o=>o.name=name)}else db.clients.push({id:uid(),...d});
+ if(save())toast('Сохранено ✓');closeSheet();render()}
+function delClient(id){
+ const c=db.clients.find(x=>x.id===id),n=cstat(c).n;
+ if(!confirm('Удалить клиента «'+c.name+'»?'+(n?' Его заказы ('+n+') останутся в списке заказов.':'')))return;
+ db.clients=db.clients.filter(x=>x.id!==id);db.orders.forEach(o=>{if(o.cid===id)o.cid=null});if(save())toast('Клиент удалён');closeSheet();render()}
+
+function vStats(m){
+ const A=db.orders.filter(active),D=A.filter(isRev),rev=D.reduce((s,o)=>s+total(o),0),M={},P={};
+ A.forEach(o=>{const k=ymd(o.created).slice(0,7);const e=M[k]=M[k]||{n:0,r:0,d:0};e.n++;if(isRev(o)){e.r+=total(o);e.d++}
+  o.items.forEach(i=>{const e=P[i.name.toLowerCase()]=P[i.name.toLowerCase()]||{n:i.name,q:0,s:0};e.q+=i.qty;e.s+=i.qty*i.price})});
+ const ks=Object.keys(M).sort().reverse(),mx=Math.max(1,...ks.map(k=>M[k].r)),pl=Object.values(P).sort((a,b)=>b.q-a.q).slice(0,10);
+ m.innerHTML=`<div class="grid">${stat('Выручка (всего)',money(rev))}${stat('Заказов (без отменённых)',A.length)}${stat('Средний чек',money(D.length?rev/D.length:0))}${stat('Отменено',db.orders.length-A.length)}</div>
+<p class="mut">Выручка считается только по заказам со статусом «Завершён». Отменённые и неоплаченные заказы в выручку не входят.</p><h2>По месяцам</h2>`+
+ (ks.length?ks.map(k=>{const e=M[k],[y,mo]=k.split('-');return `<div class="card"><div class="row"><b>${new Date(+y,+mo-1,1).toLocaleDateString('ru-RU',{month:'long',year:'numeric'})}</b><b>${money(e.r)}</b></div><div class="mut">Заказов: ${e.n} · Средний чек: ${money(e.d?e.r/e.d:0)}</div><div class="bar"><i style="width:${Math.round(e.r/mx*100)}%"></i></div></div>`}).join(''):'<p class="empty">Данных пока нет</p>')+
+ '<h2>Популярные товары</h2>'+(pl.length?pl.map((p,i)=>`<div class="card row"><span>${i+1}. ${esc(p.n)}</span><b>${+p.q.toFixed(2)} шт · ${money(p.s)}</b></div>`).join(''):'<p class="empty">Данных пока нет</p>')}
+
+function download(text,name,type){
+ const a=document.createElement('a'),u=URL.createObjectURL(new Blob([text],{type}));a.href=u;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),5000)}
+function exportJSON(){
+ download(JSON.stringify({app:'kd-crm',exported:new Date().toISOString(),...db},null,1),'kd-crm-backup-'+ymd(new Date())+'.json','application/json');
+ db.settings.lastBackup=new Date().toISOString();save();toast('Копия подготовлена. Сохраните файл в «Файлы» на iPhone.');render()}
+function exportCSV(){
+ const q=v=>{v=String(v==null?'':v);if(/^[=@]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'};
+ const R=[['Номер','Дата','Клиент','Телефон','ВКонтакте','Статус','Товары','Сумма','Комментарий']];
+ [...db.orders].sort((a,b)=>a.num-b.num).forEach(o=>R.push([num(o),fmtDate(o.created),o.name,o.phone,o.vk,ST[o.status],o.items.map(i=>i.name+' × '+i.qty+' по '+i.price).join('; '),total(o),o.comment]));
+ download('\uFEFF'+R.map(r=>r.map(q).join(';')).join('\r\n'),'zakazy-'+ymd(new Date())+'.csv','text/csv;charset=utf-8');toast('CSV подготовлен')}
+function importFile(file){
+ if(!file)return;const r=new FileReader();
+ r.onerror=()=>toast('Не удалось прочитать файл',true);
+ r.onload=()=>{let d;try{d=norm(JSON.parse(r.result))}catch(e){return toast('Этот файл не похож на резервную копию CRM',true)}
+  if(!confirm('ВНИМАНИЕ! Восстановление ЗАМЕНИТ все текущие данные ('+db.orders.length+' заказов, '+db.clients.length+' клиентов) данными из файла ('+d.orders.length+' заказов, '+d.clients.length+' клиентов). Продолжить?'))return;
+  db=d;if(save())toast('Данные восстановлены ✓');render()};
+ r.readAsText(file)}
+function demo(){
+ if(!confirm('Добавить тестовые заказы и клиентов? Они помечены как тестовые, их можно удалить кнопкой ниже.'))return;
+ const cl=[['Тест Анна','+7 900 000-00-01'],['Тест Игорь','+7 900 000-00-02'],['Тест Мария','']].map(n=>({id:uid(),name:n[0],phone:n[1],vk:'',note:'',demo:true}));db.clients.push(...cl);
+ const P=[['Разделочная доска',1800],['Шкатулка из кедра',2500],['Подставка под горячее',450],['Ложка резная',350]];
+ [[0,0,1,70,'done'],[1,1,2,45,'done'],[2,2,3,30,'done'],[0,3,4,20,'sent'],[1,0,2,10,'wait'],[2,1,1,5,'new'],[0,2,2,3,'canc']].forEach(a=>{
+  const p=P[a[1]];db.counter++;db.orders.push({id:uid(),num:db.counter,created:new Date(Date.now()-a[3]*864e5).toISOString(),cid:cl[a[0]].id,name:cl[a[0]].name,phone:cl[a[0]].phone,vk:'',items:[{name:p[0],qty:a[2],price:p[1]}],status:a[4],comment:'',demo:true})});
+ if(save())toast('Тестовые данные добавлены');render()}
+function delDemo(){
+ if(!confirm('Удалить все тестовые заказы и тестовых клиентов? Ваши настоящие данные не пострадают.'))return;
+ db.orders=db.orders.filter(o=>!o.demo);db.clients=db.clients.filter(c=>!c.demo);if(save())toast('Тестовые данные удалены');render()}
+function wipe(){
+ if(!confirm('Удалить ВСЕ данные CRM с этого телефона? Это нельзя отменить. Сначала сделайте резервную копию!'))return;
+ if(!confirm('Точно удалить всё?'))return;
+ db=fresh();if(save())toast('Все данные удалены');render()}
+function vSet(m){
+ const lb=db.settings.lastBackup;
+ m.innerHTML=`<div class="warn"><b>Важно:</b> данные хранятся только в браузере (localStorage) на этом телефоне. Это не облако и не защищённое хранилище. Они могут пропасть, если очистить данные Safari, сменить телефон или адрес приложения, а Safari может удалять данные сайтов, которыми давно не пользовались. Делайте резервную копию регулярно — например, раз в неделю и после важных заказов.</div>
+<p class="mut">Последняя резервная копия: <b>${lb?new Date(lb).toLocaleString('ru-RU'):'ещё не делали'}</b><br>Сейчас в базе: заказов ${db.orders.length}, клиентов ${db.clients.length}</p>
+<button class="btn" onclick="exportJSON()">Экспорт резервной копии (JSON)</button>
+<button class="btn light" onclick="$('#fi').click()">Восстановить из JSON</button>
+<button class="btn light" onclick="exportCSV()">Экспорт заказов в CSV</button>
+<h2>Тестовые данные</h2>
+<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:auto;margin:0" ${db.settings.demoBtn?'checked':''} onchange="db.settings.demoBtn=this.checked;save();render()"> Показывать кнопки тестовых данных</label>
+${db.settings.demoBtn?`<button class="btn light" onclick="demo()">Загрузить тестовые данные</button><button class="btn light" onclick="delDemo()">Удалить тестовые данные</button>`:''}
+<h2>Опасная зона</h2><button class="btn del" onclick="wipe()">Удалить все данные</button>`}
+
+load();render();
+</script></body></html>
